@@ -1,0 +1,212 @@
+# the VPC
+Parameters:
+  Region:
+    Type: String
+    Default: eu-north-1
+
+Resources:
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/22
+      Tags:
+        - Key: Name
+          Value: MainVPC
+
+  # 2 public subnets for the client application and NAT Gateway in
+  # different availability zones for better availability
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${Region}a
+      CidrBlock: 10.0.0.0/24
+      Tags:
+        - Key: Name
+          Value: PublicSubnetA
+      VpcId: !Ref MainVPC
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${Region}b
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: Name
+          Value: PublicSubnetB
+      VpcId: !Ref MainVPC
+
+  # 2 private subnets for the backend server and
+  # the database
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${Region}a
+      CidrBlock: 10.0.2.0/24
+      Tags:
+        - Key: Name
+          Value: PublicSubnetA
+      VpcId: !Ref MainVPC
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub ${Region}b
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: Name
+          Value: PublicSubnetB
+      VpcId: !Ref MainVPC
+
+  # Internet Gateway
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: IGW
+
+  # Internet Gateway Attachment
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref MainVPC
+
+  # 2 Elastic IPs for the 2 NAT gateways one for each
+  # private subnet
+  EIPa:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: EIPa
+
+  EIPb:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: EIPb
+
+  # 2 NAT Gateways for each private subnet each
+  # NAT Gateway is in the corresponding public subnet in the AZ
+  NATa:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPa.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: NATa
+
+  NATb:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPb.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: NATb
+
+  # Routing table for the public subnets
+  MainRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MainRT
+      VpcId: !Ref MainVPC
+
+  # Route all the traffic going outside of the subnet to the Internet Gateway
+  MainRTRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref MainRT
+
+  # Link the associate the routing table with the public subnets
+  MainRTSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRT
+      SubnetId: !Ref PublicSubnetA
+
+  MainRTSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRT
+      SubnetId: !Ref PublicSubnetB
+
+  # 2 routing tables, one for each private subnet
+  PrivateART:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PrivateART
+      VpcId: !Ref MainVPC
+
+  PrivateBRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PrivateBRT
+      VpcId: !Ref MainVPC
+
+  # Add the routes to the routing tables
+  # Privates subnets can only access the internet through the NAT Gateway
+  PrivateAMainRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref NATa
+      RouteTableId: !Ref PrivateART
+
+  PrivateBMainRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref NATb
+      RouteTableId: !Ref PrivateBRT
+
+  # Link the routing tables with the private subnets
+  PrivateARTSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateART
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateBRTSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateBRT
+      SubnetId: !Ref PrivateSubnetB
+
+# configure the outputs of the setup
+Outputs:
+  VpcId:
+    Value: !Ref MainVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+
+  PrivateSubnetA:
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetA
+
+  PublicSubnetA:
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetA
+
+  PrivateSubnetB:
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetB
+
+  PublicSubnetB:
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetB

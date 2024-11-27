@@ -1,0 +1,409 @@
+Parameters:
+  Region:
+    Type: String
+    Default: eu-north-1
+  InfrastructureStackName:
+    Description: Name of the base infrastructure stack
+    Type: String
+    Default: infrastructure-stack
+  DBPass:
+    Type: String
+    Default: admin123
+
+Resources:
+  # 2 EC2 instances running the backend server 
+  # in each private subnet
+  ServerAEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Sub ${Region}a
+      KeyName: CloudProjectKey
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 8 # in GB
+      ImageId: ami-05edb7c94b324f73c # Amazon Linux 2 AMI (64-bit x86)
+      InstanceType: t3.micro # 2 vCPUs & 1 GiB
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          PrivateIpAddress: 10.0.2.4
+          SubnetId: !ImportValue
+            Fn::Sub: ${InfrastructureStackName}-PrivateSubnetA
+          DeviceIndex: '0'
+          Description: Primary network interface
+          GroupSet:
+            - !Ref ServerSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+
+          # Update the system
+          sudo yum update -y
+          
+          # Install Python3 (if not already installed)
+          sudo yum install -y python3
+          
+          # Get the machine's hostname
+          MACHINE_NAME=$(hostname)
+          
+          # Create a directory for the web server
+          mkdir -p ~/web
+          
+          # Create the index.html file with the machine name
+          echo "hello from server machine: ${MACHINE_NAME}" > ~/web/index.html
+          
+          # Start the Python HTTP server on port 8080
+          cd ~/web
+          nohup python3 -m http.server 8080 --bind 0.0.0.0 &
+            
+      Tags:
+        - Key: Name
+          Value: ServerAEC2
+
+  ServerBEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Sub ${Region}b
+      KeyName: CloudProjectKey
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 8
+      ImageId: ami-05edb7c94b324f73c
+      InstanceType: t3.micro
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          PrivateIpAddress: 10.0.3.4
+          SubnetId: !ImportValue
+            Fn::Sub: ${InfrastructureStackName}-PrivateSubnetB
+          DeviceIndex: '0'
+          Description: Primary network interface
+          GroupSet:
+            - !Ref ServerSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+
+          # Update the system
+          sudo yum update -y
+          
+          # Install Python3 (if not already installed)
+          sudo yum install -y python3
+          
+          # Get the machine's hostname
+          MACHINE_NAME=$(hostname)
+          
+          # Create a directory for the web server
+          mkdir -p ~/web
+          
+          # Create the index.html file with the machine name
+          echo "hello from server machine: ${MACHINE_NAME}" > ~/web/index.html
+          
+          # Start the Python HTTP server on port 8080
+          cd ~/web
+          nohup python3 -m http.server 8080 --bind 0.0.0.0 &
+      Tags:
+        - Key: Name
+          Value: ServerBEC2
+
+  # 2 EC2 instances running the client applications on each public subnet
+  ClientAEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Sub ${Region}a
+      KeyName: CloudProjectKey
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 8
+      ImageId: ami-05edb7c94b324f73c
+      InstanceType: t3.micro
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          PrivateIpAddress: 10.0.0.4
+          SubnetId: !ImportValue
+            Fn::Sub: ${InfrastructureStackName}-PublicSubnetA
+          DeviceIndex: '0'
+          Description: Primary network interface
+          GroupSet:
+            - !Ref ClientSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+
+          # Update the system
+          sudo yum update -y
+          
+          # Install Python3 (if not already installed)
+          sudo yum install -y python3
+          
+          # Get the machine's hostname
+          MACHINE_NAME=$(hostname)
+          
+          # Create a directory for the web server
+          mkdir -p ~/web
+          
+          # Create the index.html file with the machine name
+          echo "hello from client machine: ${MACHINE_NAME}" > ~/web/index.html
+          
+          # Start the Python HTTP server on port 5000
+          cd ~/web
+          nohup python3 -m http.server 5000 --bind 0.0.0.0 &
+      Tags:
+        - Key: Name
+          Value: ClientAEC2
+
+  ClientBEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Sub ${Region}b
+      KeyName: CloudProjectKey
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 8
+      ImageId: ami-05edb7c94b324f73c
+      InstanceType: t3.micro
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          PrivateIpAddress: 10.0.1.4
+          SubnetId: !ImportValue
+            Fn::Sub: ${InfrastructureStackName}-PublicSubnetB
+          DeviceIndex: '0'
+          Description: Primary network interface
+          GroupSet:
+            - !Ref ClientSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+
+          # Update the system
+          sudo yum update -y
+          
+          # Install Python3 (if not already installed)
+          sudo yum install -y python3
+          
+          # Get the machine's hostname
+          MACHINE_NAME=$(hostname)
+          
+          # Create a directory for the web server
+          mkdir -p ~/web
+          
+          # Create the index.html file with the machine name
+          echo "hello from client machine: ${MACHINE_NAME}" > ~/web/index.html
+          
+          # Start the Python HTTP server on port 5000
+          cd ~/web
+          nohup python3 -m http.server 5000 --bind 0.0.0.0 &
+      Tags:
+        - Key: Name
+          Value: ClientBEC2
+
+  # Configure the server security group to accept any ssh traffic
+  # or any traffic incoming from the load balancer
+  # and allow it to send data anywhere on the internet
+  ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Server security group
+      GroupName: ServerSecurityGroup
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: TCP
+          FromPort: 22
+          ToPort: 22
+        - SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          IpProtocol: TCP
+          FromPort: 8080
+          ToPort: 8080
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+      Tags:
+        - Key: Name
+          Value: ServerSecurityGroup
+
+  ClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Client security group
+      GroupName: ClientSecurityGroup
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: TCP
+          FromPort: 22
+          ToPort: 22
+        - SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          IpProtocol: TCP
+          FromPort: 5000
+          ToPort: 5000
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1 # Allow all
+      Tags:
+        - Key: Name
+          Value: ClientSecurityGroup
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB security group
+      GroupName: UserManagerDBSg
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref ServerSecurityGroup
+          IpProtocol: TCP
+          FromPort: 3306
+          ToPort: 3306
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1 # Allow all
+      Tags:
+        - Key: Name
+          Value: UserManagerDBSg
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+
+  # Subnet group for the data base instances
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: DBSubnetGroup for RDS MySql instance
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - !ImportValue
+          Fn::Sub: ${InfrastructureStackName}-PrivateSubnetA
+        - !ImportValue
+          Fn::Sub: ${InfrastructureStackName}-PrivateSubnetB
+
+  DB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      BackupRetentionPeriod: 0
+      CopyTagsToSnapshot: false
+      DBInstanceClass: db.t3.micro
+      DBInstanceIdentifier: db
+      DBName: DB
+      DBSubnetGroupName: DBSubnetGroup
+      Engine: mysql
+      EngineVersion: 8.0.39
+      LicenseModel: general-public-license
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBPass
+      MaxAllocatedStorage: 1000
+      MultiAZ: true
+      PubliclyAccessible: false
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+
+  # Defining target groups for the load balancer
+  ServerTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      # HealthCheckEnabled: true
+      # HealthCheckPath: /users
+      # HealthCheckProtocol: HTTP
+      # Matcher:
+      #   HttpCode: '200'
+      Port: 8080
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Name: ServerTG
+      TargetType: instance
+      Targets:
+        - Id: !Ref ServerAEC2
+          Port: 8080
+        - Id: !Ref ServerBEC2
+          Port: 8080
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+
+  ClientTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      # HealthCheckEnabled: true
+      # HealthCheckPath: /
+      # HealthCheckProtocol: HTTP
+      # Matcher:
+      #   HttpCode: '200'
+      Port: 5000
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Name: ClientTG
+      TargetType: instance
+      Targets:
+        - Id: !Ref ClientAEC2
+          Port: 5000
+        - Id: !Ref ClientBEC2
+          Port: 5000
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LB security group
+      GroupName: LoadBalancerSecurityGroup
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: TCP
+          FromPort: 8080 # for the server
+          ToPort: 8080
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: TCP
+          FromPort: 5000 # for the application
+          ToPort: 5000
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1 # Allow all
+      Tags:
+        - Key: Name
+          Value: LoadBalancerSecurityGroup
+      VpcId: !ImportValue
+        Fn::Sub: ${InfrastructureStackName}-VpcId
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: LB
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Type: application
+      Subnets:
+        - !ImportValue
+          Fn::Sub: ${InfrastructureStackName}-PublicSubnetA
+        - !ImportValue
+          Fn::Sub: ${InfrastructureStackName}-PublicSubnetB
+
+  LBClientListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref ClientTG
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 5000
+      Protocol: HTTP
+
+  LBServerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref ServerTG
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 8080
+      Protocol: HTTP
+
+Outputs:
+  LoadBalancerDNS:
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: LoadBalancerDNS
